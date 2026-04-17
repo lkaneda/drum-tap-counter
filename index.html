@@ -119,8 +119,8 @@ canvas#confetti-canvas { position:fixed; top:0; left:0; width:100%; height:100%;
   </button>
   <div style="width:100%;margin-top:0.5rem;">
     <div class="sensitivity-card card">
-      <div class="s-label">🎚 Sensitivity <span id="setup-thresh-val">27</span></div>
-      <input type="range" id="setup-threshold" min="1" max="30" step="1" value="27">
+      <div class="s-label">🎚 Sensitivity <span id="setup-thresh-val">4</span></div>
+      <input type="range" id="setup-threshold" min="1" max="30" step="1" value="4">
     </div>
   </div>
 </div>
@@ -190,13 +190,14 @@ let audioTapCount   = 0;   // total taps detected - read by rAF loop
 let audioEnergy     = 0;   // current RMS energy  - read by rAF loop
 let audioCooldownUntil = 0;
 let audioLastEnergy    = 0;
+let audioEnergyAvg     = 0;  // slow-moving baseline — adapts to mic amplitude
 let audioRunning    = false;
 let audioPaused     = false;
 // BPM ring buffer - written by audio thread, read by rAF
 const BPM_WINDOW    = 8;
 let bpmTimes        = [];  // timestamps of last N hits (performance.now())
 
-let cachedThreshold = 4;
+let cachedThreshold = 2.94;
 function getThreshold() { return cachedThreshold; }
 
 // Called ONLY from onaudioprocess. Touches NO DOM.
@@ -208,9 +209,10 @@ function audioOnProcess(e) {
   const rms   = Math.sqrt(sum / input.length);
   const energy = rms * 100;
   audioEnergy = energy;
+  audioEnergyAvg = audioEnergyAvg * 0.92 + energy * 0.08;
   const delta = energy - audioLastEnergy;
   const now = performance.now();
-  if (now > audioCooldownUntil && delta > getThreshold() && energy > 2) {
+  if (now > audioCooldownUntil && delta > audioEnergyAvg * getThreshold() && energy > audioEnergyAvg * 1.8) {
     audioTapCount++;
     bpmTimes.push(now);
     if (bpmTimes.length > BPM_WINDOW + 1) bpmTimes.shift();
@@ -274,7 +276,7 @@ const flooder     = document.getElementById('emoji-flooder');
 // ── setup slider ──
 document.getElementById('setup-threshold').addEventListener('input', function() {
   document.getElementById('setup-thresh-val').textContent = this.value;
-  cachedThreshold = 31 - parseInt(this.value);
+  cachedThreshold = 3.3 - parseInt(this.value) * 0.09;
 });
 
 function showScreen(id) {
@@ -397,6 +399,7 @@ async function handleStart() {
   const ok = await startAudio();
   if (!ok) return;
   audioPaused = false;
+  audioCooldownUntil = performance.now() + 300;
   rafRunning = true;
   requestAnimationFrame(rafLoop);
   mainBtns.style.display = 'none';
@@ -425,6 +428,7 @@ function handleSwitch() {
   displayedCount = 0;
   audioTapCount = 0;
   lastDisplayedAudioCount = 0;
+  audioCooldownUntil = performance.now() + 300;
   bpmTimes = [];
   earnedBadges = new Set();
   buildBadges();
@@ -457,6 +461,7 @@ function resetAll() {
   audioEnergy        = 0;
   audioLastEnergy    = 0;
   audioCooldownUntil = 0;
+  audioEnergyAvg     = 0;
   audioPaused        = false;
   bpmTimes           = [];
   // display state
@@ -635,6 +640,15 @@ function playAgain() {
   rafRunning = false;
   resetAll();
   buildBadges();
+  if (mode === 'hands') {
+    handInd.classList.add('visible');
+    switchBtn.style.display = '';
+    comboLabel.textContent = 'Right Hand Hits';
+  } else {
+    handInd.classList.remove('visible');
+    switchBtn.style.display = 'none';
+    comboLabel.textContent = 'Combo Hits';
+  }
   mainBtns.style.display = 'flex';
   runningBtns.style.display = 'none';
   showScreen('main-screen');
